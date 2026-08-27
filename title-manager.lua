@@ -5,7 +5,7 @@
 -- ================================================
 
 --[[
-    Title Manager v04 for DaVinci Resolve
+    Title Manager v05 for DaVinci Resolve
 
     Copy style and transform text across Text+ clips or Fusion Macros on the timeline.
     Single-window interface, no tabs.
@@ -24,7 +24,11 @@
       text-content inputs shown but not copyable. Click rows or group headers to toggle selection.
     - Select All / Clear All / Invert; "Use Selection" saves choice and closes. Apply Style then
       copies only selected parameters. If no selection was saved, all copyable parameters are copied.
-    
+
+    Source clip (Resolve 21.0.4+ timeline selection API)
+    - One video clip selected on the timeline: use it as source (playhead position ignored).
+    - No timeline selection: use the clip under the playhead (legacy behavior).
+    - Multiple clips selected: blocked; deselect all or select only one source clip.
 
     Target selection (both modes)
     - Track: All, or a specific video track.
@@ -32,7 +36,7 @@
     Filters combine: e.g. "Track 1" + "Green" applies only to green clips on track 1.
 
     Workflow
-    1. Position playhead on the source clip.
+    1. Select the source clip on the timeline, or position the playhead on it.
     2. Click Refresh to load the active timeline (and when switching timelines).
     3. Choose Title Type (Text+ or Fusion Macros), Track, Clip Color; for Text+ choose Style Copy,
       for Fusion Macros optionally click "Select Parameters…" to choose which parameters to copy.
@@ -76,6 +80,33 @@ utf8 = LoadUTF8Module()
 
 local function debugPrint(...)
     if DEBUG_MODE then print("[DEBUG]", ...) end
+end
+
+local SOURCE_MULTI_MSG = "Multiple clips selected.\nSelect only one source, or deselect all to use the playhead clip."
+
+-- Returns clip (or nil) and status: "selected", "playhead", "none", or "multiple".
+local function get_source_clip()
+    local ok, selected = pcall(function() return ctx.timeline:GetSelectedClips() end)
+    if ok and selected and #selected > 0 then
+        local video_items = {}
+        for _, it in ipairs(selected) do
+            local ti_ok, track_info = pcall(function() return it:GetTrackTypeAndIndex() end)
+            if ti_ok and track_info and track_info[1] == "video" then
+                table.insert(video_items, it)
+            end
+        end
+        if #video_items > 1 then
+            return nil, "multiple"
+        end
+        if #video_items == 1 then
+            return video_items[1], "selected"
+        end
+    end
+    local clip = ctx.timeline:GetCurrentVideoItem()
+    if clip then
+        return clip, "playhead"
+    end
+    return nil, "none"
 end
 
 local function get_fusion_comp_from_clip(clip)
@@ -453,7 +484,14 @@ local function find_fusion_macro_clips()
 end
 
 local function filter_by_track_color(list, track_filter, color_filter, exclude_source)
-    local src = ctx.timeline:GetCurrentVideoItem()
+    local src = nil
+    if exclude_source then
+        local status
+        src, status = get_source_clip()
+        if status == "multiple" then
+            src = nil
+        end
+    end
     local out = {}
     for _, e in ipairs(list) do
         if exclude_source and e.clip == src then goto skip end
@@ -543,6 +581,7 @@ local PRIMARY_BUTTON_COMPACT = string.format([[
 
 local SECTION = string.format([[ QLabel { color: %s; font-size: 14px; font-weight: bold; padding: 5px 0; } ]], TEXT_COLOR)
 local STATUS = [[ QLabel { color: #c0c0c0; font-size: 12px; padding: 3px 0; } ]]
+local STATUS_BAR = [[ QLabel { color: #c0c0c0; font-size: 11px; padding: 2px 4px; } ]]
 local COMBO = string.format([[
     QComboBox { border: 1px solid %s; border-radius: 4px; padding: 5px;
         background-color: %s; color: %s; min-height: 25px; }
@@ -935,7 +974,15 @@ win = disp:AddWindow({
             ]], BORDER_COLOR) },
             ui:Button{ ID = "ApplyStyle", Text = "Apply Style", Weight = 0.4, StyleSheet = PRIMARY_BUTTON }
         },
-        ui:Label{ ID = "Status", Text = "", Alignment = { AlignCenter = true }, StyleSheet = STATUS }
+        ui:Label{
+            ID = "Status",
+            Text = "",
+            Weight = 0,
+            WordWrap = true,
+            Alignment = { AlignHCenter = true, AlignTop = true },
+            StyleSheet = STATUS_BAR,
+            MinimumSize = {0, 36},
+        }
     }
 })
 
@@ -1096,7 +1143,11 @@ local function update_target_count()
         itm.TargetCount.Text = "Target clips: —"
         return 0
     end
-    local src = ctx.timeline:GetCurrentVideoItem()
+    local src, status = get_source_clip()
+    if status == "multiple" then
+        itm.TargetCount.Text = "Target clips: — (multiple selected)"
+        return 0
+    end
     if not src then
         itm.TargetCount.Text = "Target clips: —"
         return 0
@@ -1139,8 +1190,8 @@ local function get_targets_textplus()
 end
 
 local function get_targets_fusion()
-    local src = ctx.timeline:GetCurrentVideoItem()
-    if not src then return {} end
+    local src, status = get_source_clip()
+    if status == "multiple" or not src then return {} end
     local name = src:GetName()
     local all = find_fusion_macro_clips()
     all = filter_fusion_same_name(all, name)
@@ -1157,14 +1208,18 @@ end
 
 -- Open Fusion Macro parameter selector; saves selection to macro_selected_ids on Use Selection / Close.
 local function open_macro_param_selector()
-    local src = ctx.timeline:GetCurrentVideoItem()
+    local src, status = get_source_clip()
+    if status == "multiple" then
+        itm.Status.Text = SOURCE_MULTI_MSG
+        return
+    end
     if not src then
-        itm.Status.Text = "No clip under playhead."
+        itm.Status.Text = "No source clip. Select one clip or position playhead on a clip."
         return
     end
     local comp = get_fusion_comp_from_clip(src)
     if not comp or not find_macro_in_comp(comp) then
-        itm.Status.Text = "Clip under playhead is not a Fusion macro."
+        itm.Status.Text = "Source clip is not a Fusion macro."
         return
     end
     local descs = get_published_inputs_detailed(comp)
@@ -1697,7 +1752,11 @@ function win.On.ApplyTextOnly.Clicked(ev)
         itm.Status.Text = "Click Refresh first."
         return
     end
-    local src = ctx.timeline:GetCurrentVideoItem()
+    local src, status = get_source_clip()
+    if status == "multiple" then
+        itm.Status.Text = SOURCE_MULTI_MSG
+        return
+    end
     local transform = itm.TextTransform.CurrentText
     local punct = build_punct_settings()
     local need = (transform ~= "No change") or punct.enabled
@@ -1767,9 +1826,13 @@ function win.On.ApplyStyle.Clicked(ev)
         itm.Status.Text = "Click Refresh first."
         return
     end
-    local src = ctx.timeline:GetCurrentVideoItem()
+    local src, status = get_source_clip()
+    if status == "multiple" then
+        itm.Status.Text = SOURCE_MULTI_MSG
+        return
+    end
     if not src then
-        itm.Status.Text = "No source clip selected."
+        itm.Status.Text = "No source clip. Select one clip or position playhead on a clip."
         return
     end
 
