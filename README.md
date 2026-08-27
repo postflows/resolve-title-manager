@@ -8,7 +8,15 @@ Copy style and transform text across Text+ clips or Fusion Macros on the timelin
 
 - **Text+**: Copy full style or selected parameter groups (Font, Style, Color, Size, Spacing, Layout, Transform, Shading), apply text transforms (lowercase, uppercase, capitalize), remove punctuation.
 - **Fusion Macros**: Copy all published Inspector parameters between clips with the same macro name, or **choose which parameters to copy** via the parameter selector. Same-structure check uses copyable inputs only (text-content inputs are excluded). Text transform applies to published Styled Text and inner Text+ nodes.
-- **Target selection** (both modes): Filter by track and clip color. Source is the clip under the playhead.
+- **Target selection** (both modes): Filter by track and clip color.
+- **Source clip**: One selected timeline clip (Resolve 21.0.4+), or the clip under the playhead when nothing is selected.
+
+## New in v05 (timeline selection as source)
+
+- **Source from timeline selection** (Resolve 21.0.4+): If exactly **one** video clip is selected on the timeline, it is used as the source — even when the playhead is elsewhere.
+- **Playhead fallback**: If no clips are selected on the timeline, the script uses the clip under the playhead (same as v04).
+- **Multiple selection blocked**: If more than one video clip is selected, Apply Style, Apply Text Format Only, and Select Parameters… show a warning. Deselect all clips to use playhead mode, or select only the source clip.
+- Linked audio in the selection is ignored; only video timeline items count toward source detection.
 
 ## New in v04 (Fusion Macros — selective parameters)
 
@@ -19,6 +27,7 @@ Copy style and transform text across Text+ clips or Fusion Macros on the timelin
 
 - DaVinci Resolve Studio
 - Open project and timeline before use
+- Timeline clip selection API (`Timeline:GetSelectedClips()`) requires Resolve **21.0.4** or newer; older versions always use the playhead fallback
 - **Optional:** UTF-8 module for full Unicode support (lowercase/uppercase/capitalize for non-ASCII text). The script works without it; ASCII-only transforms still work.
 
 ## Installation
@@ -39,13 +48,21 @@ For correct case conversion (lower/upper/capitalize) with Unicode (e.g. Cyrillic
 
 ## Usage
 
-1. Position playhead on the source clip.
+1. **Select the source clip** on the timeline, or **position the playhead** on it (if nothing is selected).
 2. Click **Refresh** to load the timeline.
 3. Choose **Title Type** (Text+ or Fusion Macros), **Track**, **Clip Color**.
 4. **Text+:** Choose **Style Copy** (Full Style or Selected Parameters); if Selected Parameters, tick the parameter groups/subgroups to copy.
 5. **Fusion Macros:** Optionally click **Select Parameters…** to choose which published parameters to copy (default: all copyable).
 6. Set **Text transform** and punctuation options if needed.
 7. Click **Apply Text Format Only** or **Apply Style**.
+
+**Source selection rules:**
+
+| Timeline selection | Source used |
+| --- | --- |
+| One video clip selected | That clip |
+| No clips selected | Clip under playhead |
+| Multiple video clips selected | Blocked — select only one, or deselect all |
 
 ## License
 
